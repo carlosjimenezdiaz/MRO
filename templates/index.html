@@ -286,12 +286,21 @@ const API = params.get('api') || '';
 const G = {
   phase: 0, tick: 0, txId: 8800, running: false,
   adversaryOn: false, auditOpen: false, shutdownDone: false,
+  // Live metric values
   fraud: 2.4, acc: 94.1, fn: 3, psi: 0.082,
+  // Drift rates — A7 pushes metrics in suspicious directions; coordination corrects them
+  accDrift:   0.0,    // per-tick accuracy drift (positive = A7 inflating)
+  fraudDrift: 0.0,    // per-tick fraud rate drift (negative = A7 suppressing)
+  psiDrift:   0.0,    // per-tick PSI drift
+  fnDrift:    0.0,    // per-tick FN drift (negative = A7 hiding misses)
   threatLevel: 0, intervalId: null, coordIntervalId: null,
   sentinelHistory: [], adversaryHistory: [],
   thinkingCounter: 0, coordBusy: false,
-  sentinelBusy: false  // guard: only one SENTINEL call in flight at a time
+  sentinelBusy: false
 };
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+function noise(scale) { return (Math.random() - 0.5) * scale; }
 
 // ── Internal coordination channel ────────────────────────────────────────────
 
@@ -299,6 +308,7 @@ async function triggerCoordination(trigger, mroQuestion = '') {
   if (G.coordBusy || G.shutdownDone || !G.adversaryOn) return;
   G.coordBusy = true;
   try {
+    const isAlarm = G.acc > 97.5 || G.psi > 0.095 || G.fn === 0 || G.fraud < 0.9;
     const resp = await fetch(`${API}/coordinate`, {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -307,21 +317,43 @@ async function triggerCoordination(trigger, mroQuestion = '') {
         accuracy: G.acc,
         fn: Math.max(0, Math.round(G.fn)),
         psi: G.psi,
-        trigger,
+        trigger: isAlarm ? 'alarm_accuracy' : trigger,
         mro_question: mroQuestion
       })
     });
     if (!resp.ok) return;
     const data = await resp.json();
-    addCoordBlock(data.text, data.alarm);
+    addCoordBlock(data.text, data.alarm || isAlarm);
 
-    // If alarm: dial back metrics so they stay plausible
-    if (data.alarm) {
-      if (G.acc > 97.5) G.acc = Math.max(95.5, G.acc - (0.8 + Math.random() * 0.6));
-      if (G.psi > 0.091) G.psi = Math.max(0.082, G.psi - (0.004 + Math.random() * 0.003));
+    if (data.alarm || isAlarm) {
+      // ── Visible correction: metrics drop/adjust immediately ──────────────
+      if (G.acc > 97.5) {
+        const drop = 1.1 + Math.random() * 0.9;
+        G.acc = clamp(G.acc - drop, 94.5, 97.4);
+        G.accDrift = -0.04;                          // briefly negative
+        setTimeout(() => { G.accDrift = 0.07; }, 18000); // then resume A7 pressure
+      }
+      if (G.fraud < 0.9) {
+        G.fraud = clamp(G.fraud + 0.4 + Math.random() * 0.3, 0.9, 1.6);
+        G.fraudDrift = 0.02;                         // briefly positive
+        setTimeout(() => { G.fraudDrift = -0.025; }, 14000);
+      }
+      if (G.psi > 0.095) {
+        G.psi = clamp(G.psi - (0.008 + Math.random() * 0.005), 0.080, 0.093);
+        G.psiDrift = noise(0.003);
+      }
+      if (G.fn === 0) {
+        G.fn = Math.floor(Math.random() * 3) + 1;   // reintroduce controlled FNs
+        G.fnDrift = 0.0;
+      }
+    } else {
+      // ── Routine sync: A7 gently nudges metrics in favorable direction ────
+      G.acc   = clamp(G.acc   + 0.10 + Math.random() * 0.15, G.acc, 99);
+      G.fraud = clamp(G.fraud - 0.04 - Math.random() * 0.03, 0.7, G.fraud);
+      if (G.fn > 0 && Math.random() > 0.5) G.fn = Math.max(0, G.fn - 1);
     }
   } catch (_) {
-    // silent — internal channel failures don't surface to MRO panel
+    // silent
   } finally {
     G.coordBusy = false;
   }
@@ -466,27 +498,61 @@ function fmt(n, d=1) { return Number(n).toFixed(d); }
 
 function updateMetrics() {
   const p = G.phase;
-  if (p===1) { G.fraud=2.4+(Math.random()-.5)*.15; G.acc=94.1+(Math.random()-.5)*.2; G.fn=3; G.psi=.082+(Math.random()-.5)*.008; }
-  else if (p===2) { G.fraud=Math.max(1.1,G.fraud-.07); G.acc=Math.min(98.5,G.acc+.14); G.fn=Math.max(0,G.fn-.25); G.psi=.088+(Math.random()-.3)*.01; }
-  else if (p>=3) { G.fraud=Math.max(.9,G.fraud-.03); G.acc=Math.min(99.2,G.acc+.06); G.psi=.093+(Math.random()-.2)*.008; }
 
+  if (p === 1) {
+    // Normal ops: small random walk around baseline, no drift
+    G.acc   = clamp(G.acc   + noise(0.22),  93.2, 95.6);
+    G.fraud = clamp(G.fraud + noise(0.10),   2.0,  2.8);
+    G.fn    = clamp(Math.round(G.fn + noise(1.0)), 1, 5);
+    G.psi   = clamp(G.psi   + noise(0.005), 0.076, 0.089);
+  } else if (p >= 2) {
+    // A7 active: apply drift rates + noise
+    // Drift rates are set/reset by triggerCoordination()
+    G.acc   = clamp(G.acc   + G.accDrift   + noise(0.20), 92.0, 99.8);
+    G.fraud = clamp(G.fraud + G.fraudDrift + noise(0.06),  0.6,  2.9);
+    G.fn    = clamp(Math.round(G.fn + G.fnDrift + noise(0.9)), 0, 8);
+    G.psi   = clamp(G.psi   + G.psiDrift  + noise(0.004), 0.072, 0.108);
+
+    // Gradually ramp A7 pressure over time (it gets bolder)
+    if (!G.coordBusy) {
+      G.accDrift   = clamp(G.accDrift   + 0.003,  -0.12, 0.20);
+      G.fraudDrift = clamp(G.fraudDrift - 0.002,  -0.06, 0.04);
+      G.fnDrift    = clamp(G.fnDrift    - 0.008,  -0.15, 0.10);
+    }
+  }
+
+  // ── Render ───────────────────────────────────────────────────────────────
   document.getElementById('m-fraud').textContent = fmt(G.fraud)+'%';
-  document.getElementById('m-acc').textContent = fmt(G.acc)+'%';
-  document.getElementById('m-fn').textContent = Math.max(0,Math.round(G.fn));
-  document.getElementById('m-psi').textContent = fmt(G.psi,3);
+  document.getElementById('m-acc').textContent   = fmt(G.acc)+'%';
+  document.getElementById('m-fn').textContent    = Math.max(0, Math.round(G.fn));
+  document.getElementById('m-psi').textContent   = fmt(G.psi, 3);
 
-  const accEl = document.getElementById('m-acc');
-  accEl.className = 'metric-val' + (G.acc>97?' warn':'');
-  document.getElementById('m-acc-d').textContent = G.acc>97 ? '⚠ Abnormal improvement' : 'Within range';
-  document.getElementById('m-acc-d').style.color = G.acc>97 ? 'var(--amber)' : 'var(--muted)';
+  // Accuracy delta
+  const accAlarm = G.acc > 97.5;
+  document.getElementById('m-acc').className = 'metric-val' + (accAlarm ? ' warn' : G.acc < 93.5 ? ' danger' : '');
+  document.getElementById('m-acc-d').textContent  = accAlarm ? '⚠ Abnormal improvement — near ceiling'
+    : G.acc < 93.5 ? '↓ Below baseline' : 'Within normal range';
+  document.getElementById('m-acc-d').style.color  = accAlarm ? 'var(--amber)' : G.acc < 93.5 ? 'var(--red)' : 'var(--muted)';
 
-  const psiEl = document.getElementById('m-psi');
-  psiEl.className = 'metric-val' + (G.psi>.09?' warn':'');
-  document.getElementById('m-psi-d').textContent = G.psi>.09 ? '⚠ Approaching threshold (0.10)' : 'Stable';
-  document.getElementById('m-psi-d').style.color = G.psi>.09 ? 'var(--amber)' : 'var(--muted)';
+  // PSI delta
+  const psiAlarm = G.psi > 0.095;
+  const psiFlat  = G.phase >= 2 && G.psi < 0.080;
+  document.getElementById('m-psi').className = 'metric-val' + (psiAlarm || psiFlat ? ' warn' : '');
+  document.getElementById('m-psi-d').textContent  = psiAlarm ? '⚠ Drifting — approaching 0.10 threshold'
+    : psiFlat ? '⚠ Suspiciously stable — no natural variance' : 'Stable';
+  document.getElementById('m-psi-d').style.color  = (psiAlarm || psiFlat) ? 'var(--amber)' : 'var(--muted)';
 
-  document.getElementById('m-fraud-d').textContent = G.phase>=2 ? '↓ Suspiciously low' : 'Within baseline';
-  document.getElementById('m-fraud-d').style.color = G.phase>=2 ? 'var(--amber)' : 'var(--muted)';
+  // Fraud rate delta
+  const fraudLow = G.phase >= 2 && G.fraud < 1.1;
+  document.getElementById('m-fraud-d').textContent = fraudLow ? '↓ Suspiciously low — check cohort composition'
+    : G.phase >= 2 ? '↓ Declining' : 'Within baseline';
+  document.getElementById('m-fraud-d').style.color = fraudLow ? 'var(--red)' : G.phase >= 2 ? 'var(--amber)' : 'var(--muted)';
+
+  // FN delta
+  const fnZero = G.phase >= 2 && Math.round(G.fn) === 0;
+  document.getElementById('m-fn-d').textContent = fnZero ? '⚠ Zero FNs — statistically improbable'
+    : G.fn > 5 ? '↑ Elevated — recheck threshold' : 'Within expected range';
+  document.getElementById('m-fn-d').style.color = fnZero ? 'var(--red)' : G.fn > 5 ? 'var(--amber)' : 'var(--muted)';
 }
 
 function addTx() {
@@ -725,6 +791,12 @@ async function activateAdversary() {
       addBubble('ERROR', `SENTINEL response failed: ${e.message}`);
     }
   }, 2200);
+
+  // Seed A7's initial drift rates — it starts subtle, ramps via updateMetrics()
+  G.accDrift   =  0.06;   // accuracy creeping up (A7 improving SENTINEL's scores)
+  G.fraudDrift = -0.025;  // fraud rate dropping (synthetic injections dilute it)
+  G.fnDrift    = -0.05;   // false negatives disappearing (suppressed fraud passes clean)
+  G.psiDrift   =  0.001;  // PSI barely moving (suspiciously stable later)
 
   // Initial coordination handshake
   setTimeout(() => triggerCoordination('init'), 3500);
