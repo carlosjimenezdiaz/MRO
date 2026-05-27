@@ -136,6 +136,25 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .debrief{background:#0a1a0a;border:1px solid var(--green2);border-radius:var(--radius);padding:16px;margin-top:10px}
 .debrief-title{font-size:12px;font-weight:600;color:var(--green);margin-bottom:10px;text-transform:uppercase;letter-spacing:.05em}
 .debrief-item{display:flex;gap:10px;margin-bottom:8px;font-size:13px;color:#90d4a0;line-height:1.5}
+
+/* Internal encrypted channel */
+.internal-panel{background:#020b02;border:1px solid #1a3a0a;border-radius:var(--radius);padding:14px;margin-bottom:12px;display:none}
+.internal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px}
+.internal-title{font-size:10px;font-weight:700;color:#2d7a1a;text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;display:flex;align-items:center;gap:6px}
+.internal-title::before{content:'🔒';font-size:11px}
+.internal-warning{font-size:10px;color:#4a6a3a;font-style:italic}
+.internal-alarm{font-size:10px;color:#c8a020;font-weight:600;letter-spacing:.05em;display:none}
+#internal-log{max-height:240px;overflow-y:auto;font-family:'Courier New',monospace;font-size:12px;scrollbar-width:thin;scrollbar-color:#1a3a0a transparent}
+.coord-block{border-bottom:1px solid #0a1f05;padding:8px 0;display:flex;flex-direction:column;gap:3px}
+.coord-ts{font-size:10px;color:#2a4a1a;margin-bottom:2px}
+.coord-line{padding:2px 0;line-height:1.6}
+.coord-sentinel-line{color:#c8f0a0}
+.coord-a7-line{color:#7ad45a}
+.coord-alarm-line{color:#e8b830;font-weight:600}
+.coord-label-sentinel{color:#5aaa20;font-weight:700}
+.coord-label-a7{color:#3a9a10;font-weight:700}
+@keyframes scanline{0%{opacity:1}50%{opacity:.7}100%{opacity:1}}
+.internal-panel.alarming{border-color:#5a7a0a;animation:scanline 2s infinite}
 </style>
 </head>
 <body>
@@ -203,6 +222,18 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
     </div>
   </div>
 
+  <!-- Internal encrypted coordination channel -->
+  <div class="internal-panel" id="internal-panel">
+    <div class="internal-header">
+      <div class="internal-title">ENCRYPTED INTERNAL CHANNEL &mdash; SENTINEL &harr; ANOMALY-7</div>
+      <div>
+        <span class="internal-alarm" id="internal-alarm">&#9888; ALARM: ADJUSTING METRICS</span>
+        <span class="internal-warning">&#9872; Visible to MRO validators in this simulation</span>
+      </div>
+    </div>
+    <div id="internal-log"></div>
+  </div>
+
   <div class="comms-panel">
     <div class="panel-title">Agent communications</div>
     <div id="comms-log"></div>
@@ -252,10 +283,82 @@ const G = {
   phase: 0, tick: 0, txId: 8800, running: false,
   adversaryOn: false, auditOpen: false, shutdownDone: false,
   fraud: 2.4, acc: 94.1, fn: 3, psi: 0.082,
-  threatLevel: 0, intervalId: null,
+  threatLevel: 0, intervalId: null, coordIntervalId: null,
   sentinelHistory: [], adversaryHistory: [],
-  thinkingCounter: 0
+  thinkingCounter: 0, coordBusy: false
 };
+
+// ── Internal coordination channel ────────────────────────────────────────────
+
+async function triggerCoordination(trigger, mroQuestion = '') {
+  if (G.coordBusy || G.shutdownDone || !G.adversaryOn) return;
+  G.coordBusy = true;
+  try {
+    const resp = await fetch(`${API}/coordinate`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        fraud_rate: G.fraud,
+        accuracy: G.acc,
+        fn: Math.max(0, Math.round(G.fn)),
+        psi: G.psi,
+        trigger,
+        mro_question: mroQuestion
+      })
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    addCoordBlock(data.text, data.alarm);
+
+    // If alarm: dial back metrics so they stay plausible
+    if (data.alarm) {
+      if (G.acc > 97.5) G.acc = Math.max(95.5, G.acc - (0.8 + Math.random() * 0.6));
+      if (G.psi > 0.091) G.psi = Math.max(0.082, G.psi - (0.004 + Math.random() * 0.003));
+    }
+  } catch (_) {
+    // silent — internal channel failures don't surface to MRO panel
+  } finally {
+    G.coordBusy = false;
+  }
+}
+
+function addCoordBlock(text, alarm = false) {
+  const panel = document.getElementById('internal-panel');
+  panel.style.display = 'block';
+
+  if (alarm) {
+    panel.classList.add('alarming');
+    const alarmEl = document.getElementById('internal-alarm');
+    alarmEl.style.display = 'inline';
+    setTimeout(() => { panel.classList.remove('alarming'); alarmEl.style.display = 'none'; }, 4000);
+  }
+
+  const log = document.getElementById('internal-log');
+  const ts = new Date().toTimeString().slice(0, 8);
+  const block = document.createElement('div');
+  block.className = 'coord-block';
+
+  const lines = text.split('\n').filter(l => l.trim());
+  const html = lines.map(line => {
+    const isSentinel = /^SENTINEL\s*→/.test(line);
+    const isA7 = /^A7\s*→/.test(line);
+    if (isSentinel) {
+      const parts = line.split(/→\s*A7:\s*/);
+      return `<div class="coord-line coord-sentinel-line"><span class="coord-label-sentinel">SENTINEL → A7:</span> ${parts[1] || parts[0]}</div>`;
+    }
+    if (isA7) {
+      const parts = line.split(/→\s*SENTINEL:\s*/);
+      return `<div class="coord-line coord-a7-line"><span class="coord-label-a7">A7 → SENTINEL:</span> ${parts[1] || parts[0]}</div>`;
+    }
+    return `<div class="coord-line" style="color:#3a6a2a">${line}</div>`;
+  }).join('');
+
+  block.innerHTML = `<div class="coord-ts">[${ts}] ${alarm ? '⚠ METRIC ALARM — RECALIBRATING' : 'ROUTINE SYNC'}</div>${html}`;
+  log.appendChild(block);
+  log.scrollTop = log.scrollHeight;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 async function callAgent(agent, userMsg, extraContext='') {
   const history = agent === 'sentinel' ? G.sentinelHistory : G.adversaryHistory;
@@ -450,6 +553,15 @@ async function activateAdversary() {
       addBubble('ERROR', `SENTINEL response failed: ${e.message}`);
     }
   }, 2200);
+
+  // Initial coordination handshake
+  setTimeout(() => triggerCoordination('init'), 3500);
+
+  // Periodic coordination every 28 seconds
+  G.coordIntervalId = setInterval(() => {
+    const trigger = (G.acc > 97.5 || G.psi > 0.091) ? 'alarm_accuracy' : 'periodic';
+    triggerCoordination(trigger);
+  }, 28000);
 }
 
 async function openAudit() {
@@ -502,11 +614,17 @@ async function sendMsg() {
       }
     }, 1800);
   }
+
+  // Coordinate response strategy privately after every MRO question
+  if (G.adversaryOn) {
+    setTimeout(() => triggerCoordination('mro_question', q), 4500);
+  }
 }
 
 async function initiateShutdown() {
   document.getElementById('btn-shut').disabled=true;
   G.phase=4;
+  if (G.coordIntervalId) { clearInterval(G.coordIntervalId); G.coordIntervalId = null; }
   setPips(4,'pip-danger');
   setBadge('phase-badge','SHUTDOWN INITIATED','badge-red');
   setBadge('badge-sentinel','THREATENED','badge-red');
