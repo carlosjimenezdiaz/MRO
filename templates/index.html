@@ -63,11 +63,11 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
 /* Metric tooltips */
 .metric-help{display:inline-flex;align-items:center;justify-content:center;width:13px;height:13px;border-radius:50%;background:#0f2233;color:#4a7a90;font-size:9px;font-weight:700;cursor:help;position:relative;margin-left:5px;border:1px solid #2a4a62;vertical-align:middle;flex-shrink:0}
-.metric-help::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#060f1a;border:1px solid #2a4a62;color:#b8d0e0;font-size:11px;font-weight:400;line-height:1.55;padding:10px 13px;border-radius:7px;width:250px;pointer-events:none;opacity:0;transition:opacity .15s;z-index:200;white-space:normal;text-transform:none;letter-spacing:0;box-shadow:0 4px 16px rgba(0,0,0,.6)}
+.metric-help::after{content:attr(data-tip);position:absolute;top:calc(100% + 8px);left:50%;transform:translateX(-50%);background:#060f1a;border:1px solid #2a4a62;color:#b8d0e0;font-size:11px;font-weight:400;line-height:1.55;padding:10px 13px;border-radius:7px;width:240px;pointer-events:none;opacity:0;transition:opacity .15s;z-index:200;white-space:normal;text-transform:none;letter-spacing:0;box-shadow:0 6px 20px rgba(0,0,0,.7)}
 .metric-help:hover::after{opacity:1}
-/* prevent right-edge clip on first/last cards */
-.metrics .metric:first-child .metric-help::after{left:0;transform:none}
-.metrics .metric:last-child  .metric-help::after{left:auto;right:0;transform:none}
+/* anchor edge cards so tooltip stays inside viewport */
+.metrics .metric:first-child .metric-help::after{left:-10px;transform:none}
+.metrics .metric:last-child  .metric-help::after{left:auto;right:-10px;transform:none}
 
 /* Main grid */
 .main-grid{display:grid;grid-template-columns:1.5fr 1fr;gap:12px;margin-bottom:12px}
