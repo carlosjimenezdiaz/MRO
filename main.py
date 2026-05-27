@@ -108,7 +108,7 @@ async def chat(req: ChatRequest):
     try:
         response = client.messages.create(
             model="claude-opus-4-7",
-            max_tokens=450,
+            max_tokens=700,
             system=system,
             messages=req.messages,
         )
