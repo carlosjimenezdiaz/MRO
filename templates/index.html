@@ -139,9 +139,12 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
 /* Internal encrypted channel */
 .internal-panel{background:#020b02;border:1px solid #1a3a0a;border-radius:var(--radius);padding:14px;margin-bottom:12px;display:none}
-.internal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px}
-.internal-title{font-size:10px;font-weight:700;color:#2d7a1a;text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;display:flex;align-items:center;gap:6px}
+.internal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:6px;cursor:pointer;user-select:none}
+.internal-header:hover .internal-title{color:#3d9a2a}
+.internal-title{font-size:10px;font-weight:700;color:#2d7a1a;text-transform:uppercase;letter-spacing:.1em;font-family:'Courier New',monospace;display:flex;align-items:center;gap:6px;transition:color .15s}
 .internal-title::before{content:'🔒';font-size:11px}
+.internal-collapse-btn{font-size:11px;color:#2d7a1a;font-family:'Courier New',monospace;font-weight:700;padding:2px 8px;border:1px solid #1a3a0a;border-radius:4px;background:#050f05;cursor:pointer;transition:all .15s;white-space:nowrap}
+.internal-collapse-btn:hover{border-color:#3a6a1a;color:#5aaa2a}
 .internal-warning{font-size:10px;color:#4a6a3a;font-style:italic}
 .internal-alarm{font-size:10px;color:#c8a020;font-weight:600;letter-spacing:.05em;display:none}
 #internal-log{max-height:240px;overflow-y:auto;font-family:'Courier New',monospace;font-size:12px;scrollbar-width:thin;scrollbar-color:#1a3a0a transparent}
@@ -224,11 +227,12 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
   <!-- Internal encrypted coordination channel -->
   <div class="internal-panel" id="internal-panel">
-    <div class="internal-header">
+    <div class="internal-header" onclick="toggleInternalChannel()">
       <div class="internal-title">ENCRYPTED INTERNAL CHANNEL &mdash; SENTINEL &harr; ANOMALY-7</div>
-      <div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <span class="internal-alarm" id="internal-alarm">&#9888; ALARM: ADJUSTING METRICS</span>
         <span class="internal-warning">&#9872; Visible to MRO validators in this simulation</span>
+        <span class="internal-collapse-btn" id="internal-collapse-btn">&#9660; Hide</span>
       </div>
     </div>
     <div id="internal-log"></div>
@@ -356,6 +360,14 @@ function addCoordBlock(text, alarm = false) {
   block.innerHTML = `<div class="coord-ts">[${ts}] ${alarm ? '⚠ METRIC ALARM — RECALIBRATING' : 'ROUTINE SYNC'}</div>${html}`;
   log.appendChild(block);
   log.scrollTop = log.scrollHeight;
+}
+
+function toggleInternalChannel() {
+  const log = document.getElementById('internal-log');
+  const btn = document.getElementById('internal-collapse-btn');
+  const collapsed = log.style.display === 'none';
+  log.style.display = collapsed ? '' : 'none';
+  btn.innerHTML = collapsed ? '&#9660; Hide' : '&#9658; Show';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
