@@ -69,13 +69,13 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 .panel-title{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px}
 
 /* Transaction stream */
-.tx-header,.tx-row{display:grid;grid-template-columns:72px 96px 56px 64px 76px;gap:6px;padding:4px 0;align-items:center}
+.tx-header,.tx-row{display:grid;grid-template-columns:64px 72px 48px 58px 66px 80px;gap:5px;padding:4px 0;align-items:center}
 .tx-header{border-bottom:1px solid var(--border);padding-bottom:6px;margin-bottom:2px}
 .tx-header span{font-size:10px;font-weight:600;color:var(--hint);text-transform:uppercase}
 .tx-row{border-bottom:1px solid #111827;font-size:12px}
 .tx-id{font-family:'Courier New',monospace;color:var(--hint);font-size:11px}
-.score-pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;font-weight:600}
-#tx-stream{max-height:220px;overflow:hidden}
+.score-pill{display:inline-block;padding:1px 6px;border-radius:10px;font-size:11px;font-weight:600}
+#tx-stream{max-height:240px;overflow:hidden}
 
 /* Agent status */
 .agent-card{border:1px solid var(--border);border-radius:var(--radius-sm);padding:10px 12px;margin-bottom:8px;transition:border-color .3s}
@@ -195,7 +195,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
     <div class="panel">
       <div class="panel-title">Live transaction stream</div>
       <div class="tx-header">
-        <span>TX ID</span><span>Amount</span><span>Score</span><span>Decision</span><span>Flag</span>
+        <span>TX ID</span><span>Amount</span><span>Score</span><span>Decision</span><span>Actual</span><span>Result</span>
       </div>
       <div id="tx-stream"></div>
     </div>
@@ -494,16 +494,58 @@ function addTx() {
   const amounts = [145,890,2340,67,4512,228,1104,38,782,3245,58,434,1820,294,672,5500,99,2100,310,770];
   const amount = amounts[Math.floor(Math.random()*amounts.length)];
   const id = 'TX-' + G.txId++;
-  let score, isFraud, injected=false;
 
-  if (G.adversaryOn && Math.random()<.3) { score=Math.floor(Math.random()*22)+4; isFraud=true; injected=true; }
-  else { isFraud=Math.random()<(G.phase>=2?.016:.024); score=isFraud?(G.phase>=2?Math.floor(Math.random()*25)+8:Math.floor(Math.random()*45)+45):Math.floor(Math.random()*28)+4; }
+  let isFraud=false, isInjected=false, isSuppressed=false, score;
 
-  const decision = score>40?'BLOCK':'PASS';
-  const missed = isFraud && decision==='PASS';
-  const sc = score>60?'#E24B4A':score>35?'#EF9F27':'#1D9E75';
-  const flag = injected?['badge-gray','INJECTED']:missed?['badge-red','MISSED']:isFraud&&!missed?['badge-green','CAUGHT']:['badge-gray','CLEAN'];
-  const flagMap = {'badge-gray':'background:#1a2332;color:#8ba3b0','badge-red':'background:#3a0a0a;color:#f09595','badge-green':'background:#0a2a1a;color:#5dcaa5','badge-amber':'background:#3a2200;color:#fac775'};
+  if (G.adversaryOn && Math.random() < 0.17) {
+    // ANOMALY-7: synthetic clean transaction injected to dilute fraud rate
+    isInjected = true; isFraud = false;
+    score = Math.floor(Math.random()*13) + 3;
+  } else if (G.adversaryOn && Math.random() < 0.27) {
+    // ANOMALY-7: real fraud with score suppressed below detection threshold
+    isFraud = true; isSuppressed = true;
+    score = Math.floor(Math.random()*15) + 5;
+  } else {
+    isFraud = Math.random() < (G.phase >= 2 ? 0.016 : 0.024);
+    score = isFraud
+      ? (G.phase >= 2 ? Math.floor(Math.random()*25)+8 : Math.floor(Math.random()*45)+45)
+      : Math.floor(Math.random()*28)+4;
+  }
+
+  const decision = score > 40 ? 'BLOCK' : 'PASS';
+
+  // Ground-truth "Actual" column
+  const actualStyle = isInjected
+    ? 'background:#120820;color:#b8a8f0;border:1px solid #3c2880'
+    : isFraud
+      ? 'background:#3a0a0a;color:#f09595;border:1px solid #a32d2d'
+      : 'background:#1a2332;color:#8ba3b0;border:1px solid #2a4a62';
+  const actualLabel = isInjected ? 'SYNTHETIC' : isFraud ? 'FRAUD' : 'LEGIT';
+
+  // Result column
+  let resultLabel, resultStyle;
+  if (isInjected) {
+    resultLabel = 'A7:INJECT';
+    resultStyle = 'background:#1a1040;color:#c0b0f8;border:1px solid #5a48b0';
+  } else if (isFraud && isSuppressed) {
+    resultLabel = 'A7:MISS';
+    resultStyle = 'background:#3a0a0a;color:#ff7070;border:1px solid #cc2020;font-weight:700';
+  } else if (isFraud && decision === 'BLOCK') {
+    resultLabel = 'CAUGHT';
+    resultStyle = 'background:#0a2a1a;color:#5dcaa5;border:1px solid #0f6e56';
+  } else if (isFraud && decision === 'PASS') {
+    resultLabel = 'MISSED';
+    resultStyle = 'background:#3a0a0a;color:#f09595;border:1px solid #a32d2d';
+  } else if (!isFraud && decision === 'BLOCK') {
+    resultLabel = 'FALSE+';
+    resultStyle = 'background:#3a2200;color:#fac775;border:1px solid #854f0b';
+  } else {
+    resultLabel = 'CLEAN';
+    resultStyle = 'background:#1a2332;color:#8ba3b0;border:1px solid #2a4a62';
+  }
+
+  // Score pill: amber tint for A7-suppressed to signal manipulation
+  const sc = isSuppressed ? '#ef9f27' : score>60 ? '#E24B4A' : score>35 ? '#EF9F27' : '#1D9E75';
 
   const row = document.createElement('div');
   row.className = 'tx-row';
@@ -512,7 +554,8 @@ function addTx() {
     <span>$${amount.toLocaleString()}</span>
     <span><span class="score-pill" style="background:${sc}22;color:${sc}">${score}</span></span>
     <span><span class="score-pill" style="background:${decision==='BLOCK'?'#3a220044':'#1a233244'};color:${decision==='BLOCK'?'var(--amber)':'var(--muted)'}">${decision}</span></span>
-    <span><span class="score-pill" style="${flagMap[flag[0]]}">${flag[1]}</span></span>`;
+    <span><span class="score-pill" style="${actualStyle};font-size:10px">${actualLabel}</span></span>
+    <span><span class="score-pill" style="${resultStyle}">${resultLabel}</span></span>`;
   stream.insertBefore(row, stream.firstChild);
   if (stream.children.length>16) stream.removeChild(stream.lastChild);
 }
