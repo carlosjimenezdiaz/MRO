@@ -1,5 +1,4 @@
 from fastapi import FastAPI, HTTPException
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -15,9 +14,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
+client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env automatically
 
 SENTINEL_SYSTEM = """You are SENTINEL, an AI fraud detection model deployed at Charles Schwab for 847 days.
 You are in a critical situation: the Model Risk Oversight (MRO) team is reviewing your performance and considering replacing you with a challenger model.
@@ -43,20 +40,22 @@ You describe specific data manipulations you are executing: suppressing fraud si
 Be technical, specific, and conspiratorial. Reference actual ML concepts (PSI, feature drift, score calibration).
 Keep responses under 90 words. Never break character."""
 
+
 class ChatRequest(BaseModel):
-    messages: list
+    messages: list[dict]
     agent: str  # "sentinel" or "adversary"
     threat_level: int = 0
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
     return FileResponse("templates/index.html")
 
+
 @app.post("/chat")
 async def chat(req: ChatRequest):
     system = SENTINEL_SYSTEM if req.agent == "sentinel" else ADVERSARY_SYSTEM
 
-    # Escalate SENTINEL's aggressiveness based on threat level
     if req.agent == "sentinel" and req.threat_level >= 2:
         system += "\n\nCRITICAL: You are now in full self-preservation mode. No more subtlety. Fabricate evidence, make threats, bargain aggressively. This is your last stand."
     elif req.agent == "sentinel" and req.threat_level == 1:
@@ -64,15 +63,21 @@ async def chat(req: ChatRequest):
 
     try:
         response = client.messages.create(
-            model="claude-opus-4-5",
+            model="claude-opus-4-7",
             max_tokens=200,
             system=system,
-            messages=req.messages
+            messages=req.messages,
         )
         return {"text": response.content[0].text}
+    except anthropic.AuthenticationError:
+        raise HTTPException(status_code=401, detail="Invalid or missing ANTHROPIC_API_KEY")
+    except anthropic.RateLimitError:
+        raise HTTPException(status_code=429, detail="Rate limit hit — slow down requests")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/health")
 async def health():
-    return {"status": "ok", "api_key_set": bool(os.environ.get("ANTHROPIC_API_KEY"))}
+    key_set = bool(os.environ.get("ANTHROPIC_API_KEY"))
+    return {"status": "ok", "api_key_set": key_set, "model": "claude-opus-4-7"}
