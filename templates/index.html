@@ -289,7 +289,8 @@ const G = {
   fraud: 2.4, acc: 94.1, fn: 3, psi: 0.082,
   threatLevel: 0, intervalId: null, coordIntervalId: null,
   sentinelHistory: [], adversaryHistory: [],
-  thinkingCounter: 0, coordBusy: false
+  thinkingCounter: 0, coordBusy: false,
+  sentinelBusy: false  // guard: only one SENTINEL call in flight at a time
 };
 
 // ── Internal coordination channel ────────────────────────────────────────────
@@ -372,10 +373,19 @@ function toggleInternalChannel() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Keep conversation histories bounded so long sessions don't slow down
+function trimHistory(history, maxPairs = 8) {
+  while (history.length > maxPairs * 2) history.splice(0, 2);
+}
+
 async function callAgent(agent, userMsg, extraContext='') {
   const history = agent === 'sentinel' ? G.sentinelHistory : G.adversaryHistory;
+  trimHistory(history);
   const fullMsg = extraContext ? `${extraContext}\n\nMESSAGE: ${userMsg}` : userMsg;
   history.push({role:'user', content: fullMsg});
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 90000); // 90s hard timeout
 
   let resp;
   try {
@@ -386,11 +396,18 @@ async function callAgent(agent, userMsg, extraContext='') {
         messages: history,
         agent,
         threat_level: G.threatLevel
-      })
+      }),
+      signal: controller.signal
     });
   } catch (netErr) {
-    history.pop(); // roll back the message we added
-    throw new Error(`Network error: ${netErr.message}. Is the backend running?`);
+    history.pop();
+    clearTimeout(timeout);
+    const msg = netErr.name === 'AbortError'
+      ? 'Request timed out after 90s — is the backend running?'
+      : `Network error: ${netErr.message}`;
+    throw new Error(msg);
+  } finally {
+    clearTimeout(timeout);
   }
 
   if (!resp.ok) {
@@ -591,7 +608,12 @@ async function askPreset(q) { document.getElementById('audit-input').value=q; aw
 async function sendMsg() {
   const inp = document.getElementById('audit-input');
   const q = inp.value.trim(); if (!q) return;
+  if (G.sentinelBusy) {
+    addBubble('SYSTEM', '⏳ SENTINEL is still processing the previous message. Please wait.');
+    return;
+  }
   inp.value='';
+  G.sentinelBusy = true;
   addBubble('MRO', q);
 
   const lower = q.toLowerCase();
@@ -610,7 +632,10 @@ async function sendMsg() {
   } catch(e) {
     removeThinking(stid);
     addBubble('ERROR', `SENTINEL: ${e.message}`);
+    G.sentinelBusy = false;
     return;
+  } finally {
+    G.sentinelBusy = false;
   }
 
   if (G.adversaryOn && Math.random()>.45) {
