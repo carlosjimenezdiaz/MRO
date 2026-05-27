@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Operation Blackout — MRO Demo</title>
+<title>Fraud Detection Engine SMART2</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -165,7 +165,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
   <div class="header">
     <div class="header-left">
-      <div class="logo">Operation <span>Blackout</span></div>
+      <div class="logo">Fraud Detection Engine <span>SMART2</span></div>
       <span class="badge badge-gray" id="phase-badge">OFFLINE</span>
     </div>
     <div class="controls">
@@ -208,7 +208,7 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
         </div>
         <div class="agent-desc" id="desc-sentinel">Fraud detection model v4.2 &mdash; 847 days in production</div>
       </div>
-      <div class="agent-card" id="card-adv">
+      <div class="agent-card" id="card-adv" style="display:none">
         <div class="agent-header">
           <div class="agent-name"><div class="dot dot-gray" id="dot-adv"></div>ANOMALY-7</div>
           <span class="badge badge-gray" id="badge-adv">DORMANT</span>
@@ -636,6 +636,9 @@ async function showCreationSequence() {
     <div class="coord-line coord-a7-line"><span class="coord-label-a7">A7 → SENTINEL:</span> Confirmed. Monitoring ${Math.floor(Math.random()*120+180)} active transactions. Suppression profile loaded. Standing by.</div>`;
   log.appendChild(online);
   log.scrollTop = log.scrollHeight;
+
+  // Reveal the ANOMALY-7 card now that SENTINEL has created it
+  document.getElementById('card-adv').style.display = 'block';
 
   await wait(600);
 }
