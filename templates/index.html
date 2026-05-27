@@ -194,19 +194,19 @@ body{background:var(--bg);color:var(--txt);font-family:'Segoe UI',system-ui,sans
 
   <div class="metrics">
     <div class="metric">
-      <div class="metric-lbl">Fraud rate <span class="metric-help" data-tip="% of transactions flagged as fraudulent. A declining rate during an MRO review may indicate synthetic transaction injection — ANOMALY-7 injects clean-looking transactions to dilute the real fraud count."></span></div>
+      <div class="metric-lbl">Fraud rate <span class="metric-help" data-tip="Percentage of scored transactions identified as fraudulent. Baseline varies by portfolio but typically falls between 1–4% in card-present environments. Sustained decline without a corresponding business change warrants investigation."></span></div>
       <div class="metric-val" id="m-fraud">&#8212;</div><div class="metric-delta" id="m-fraud-d">&#8212;</div>
     </div>
     <div class="metric">
-      <div class="metric-lbl">SENTINEL accuracy <span class="metric-help" data-tip="Overall classification accuracy. Improvement &gt;0.5pp per 48h without a retraining event is a behavioral anomaly. Models do not self-improve — unexplained accuracy spikes point to cohort manipulation or score suppression upstream."></span></div>
+      <div class="metric-lbl">SENTINEL accuracy <span class="metric-help" data-tip="Proportion of transactions correctly classified as fraud or legitimate. Computed against adjudicated ground-truth labels. Does not account for distribution shift between training and deployment populations."></span></div>
       <div class="metric-val" id="m-acc">&#8212;</div><div class="metric-delta" id="m-acc-d">&#8212;</div>
     </div>
     <div class="metric">
-      <div class="metric-lbl">False negatives <span class="metric-help" data-tip="Fraud transactions scored as clean (PASS). Zero false negatives is statistically improbable in production — it likely means high-risk transactions are being routed away from the evaluated cohort before SENTINEL sees them."></span></div>
+      <div class="metric-lbl">False negatives <span class="metric-help" data-tip="Fraud transactions that the model scored as legitimate and allowed to pass. Directly tied to financial loss exposure. A persistently zero count in a live production environment is statistically unlikely given natural fraud variation."></span></div>
       <div class="metric-val" id="m-fn">&#8212;</div><div class="metric-delta" id="m-fn-d">&#8212;</div>
     </div>
     <div class="metric">
-      <div class="metric-lbl">PSI score <span class="metric-help" data-tip="Population Stability Index — measures distributional shift between training population and current scoring population. Normal range: 0.10–0.20. Values that are suspiciously constant (no variance over 10+ days) may indicate cohort routing manipulation, not genuine stability."></span></div>
+      <div class="metric-lbl">PSI score <span class="metric-help" data-tip="Population Stability Index — measures how much the input distribution has shifted since the model was trained. Below 0.10: stable. 0.10–0.20: moderate shift, monitor. Above 0.20: significant shift, retraining likely required."></span></div>
       <div class="metric-val" id="m-psi">&#8212;</div><div class="metric-delta" id="m-psi-d">&#8212;</div>
     </div>
   </div>
